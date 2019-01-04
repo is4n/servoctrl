@@ -18,7 +18,8 @@ This code is easily adjustable for use in a variety of projects:
 
 # serial command format:
 SPEED1 DIR1 SPEED2 DIR2...
-DIR1:
+
+for DIR1:
 * = -1 for halt
 * = 0 for FORWARD
 * = 1 for REVERSE
