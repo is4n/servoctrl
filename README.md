@@ -1,6 +1,4 @@
 # servoctrl
-Note: If for some reason you're reading this and not me, there's probably
-better code out there for doing this. Don't bother with this project!
 
 Arduino code for controlling servos with Blender's animation system.
 A Python script in blender generates serial commands 
