@@ -47,7 +47,7 @@ class Servos:
             Servos.rig = servo_config_lines[0]
             Servos.arm_bones = bpy.context.scene.objects[servo_config_lines[0]].pose.bones
             servo_config_lines = servo_config_lines[1:-1]
-            Servos.servo_count = len(servo_config_lines) - 1
+            Servos.servo_count = len(servo_config_lines)
             
             if (StoresStuff.debug): 
                 print("DEBUG: Servo build: config file")
@@ -140,10 +140,6 @@ class RobotPanel(bpy.types.Panel):
     bl_region_type = 'UI'
 
     def draw(self, context):
-        arm = context.scene.objects['Armature']
-        bone = arm.pose.bones['eye']
-        mat = bone.matrix.to_euler()
-        
         self.layout.operator("robot.animate", text='Play Animation')
         
         col = self.layout.column(align = True)        
@@ -154,9 +150,6 @@ class RobotPanel(bpy.types.Panel):
         col.operator("robot.connect", text='(Dis)Connect')
         
         row = self.layout.row()        
-        row.label(text='X: {:.3}'.format(degrees(mat.x)))
-        row.label(text='Y: {:.3}'.format(degrees(mat.y)))
-        row.label(text='Z: {:.3}'.format(degrees(mat.z)))
         
         col2 = self.layout.column(align = True)        
         col2.label(text = "Source Armature")
@@ -245,12 +238,10 @@ class RobotPanel(bpy.types.Panel):
                description = "Set the Serial Port to access the robot here",
                default = "/dev/ttyUSB0"
             )
-        
-        Servos.build("") # in order to remember servo config after re-opening blender 
             
 
 class StoresStuff:
-    debug = True # bpy.context.scene.robot_debug 
+    debug = False # bpy.context.scene.robot_debug 
     
     def print_connected(): 
         bpy.context.scene.robot_message = "Connected"
@@ -335,7 +326,6 @@ class ConnectButton(bpy.types.Operator):
     bl_label = "Connect"
     
     def execute(self, context):
-        Servos.build("man") #TODO: find a better place for this
         if (bpy.context.scene.robot_connected):
             try: 
                 StoresStuff.print_disconnected(False)
@@ -361,8 +351,9 @@ class ConnectButton(bpy.types.Operator):
 class PlayAnimButton(bpy.types.Operator):
     bl_idname = "robot.animate"
     bl_label = "Play"  
-
+	
     def execute(self, context): 
+        Servos.build("") # in order to remember servo config after re-opening blender 
         StoresStuff.fps = bpy.context.scene.render.fps
         StoresStuff.start = bpy.context.scene.frame_start
         StoresStuff.end = bpy.context.scene.frame_end
@@ -408,9 +399,16 @@ class WriteServoButton(bpy.types.Operator):
              
         return{'FINISHED'}
 
-
-bpy.utils.register_class(ReadServoButton)
-bpy.utils.register_class(WriteServoButton)
-bpy.utils.register_class(RobotPanel)
-bpy.utils.register_class(ConnectButton)
-bpy.utils.register_class(PlayAnimButton)
+def register():
+	bpy.utils.register_class(ReadServoButton)
+	bpy.utils.register_class(WriteServoButton)
+	bpy.utils.register_class(RobotPanel)
+	bpy.utils.register_class(ConnectButton)
+	bpy.utils.register_class(PlayAnimButton)
+	
+def unregister():
+	bpy.utils.unregister_class(ReadServoButton)
+	bpy.utils.unregister_class(WriteServoButton)
+	bpy.utils.unregister_class(RobotPanel)
+	bpy.utils.unregister_class(ConnectButton)
+	bpy.utils.unregister_class(PlayAnimButton)
