@@ -1,5 +1,7 @@
 # servoctrl
 
+*note: code under active deving, parts of this doc might be baaad*
+
 Arduino code for controlling servos with Blender's animation system (or anything that can spit out serial commands really).
 A Python script in blender generates serial commands 
 and this reads them and sets the servos (using the stock Arduino servo lib).
