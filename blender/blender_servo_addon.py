@@ -318,14 +318,14 @@ class PlaysAnimation:
             return str(int(deg_sec)) + ' 1'
         elif ((deg_sec < 0 and reverse)):
             return str(int(deg_sec * -1)) + ' 0'
-        else: return str(int(deg_sec)) + ' 0'				
+        else: return str(int(deg_sec)) + ' 0'
 
 # Following classes are input handlers
 class ConnectButton(bpy.types.Operator):
     bl_idname = "robot.connect"
     bl_label = "Connect"
-    
     def execute(self, context):
+    
         if (bpy.context.scene.robot_connected):
             try: 
                 StoresStuff.print_disconnected(False)
@@ -366,7 +366,13 @@ class ReadServoButton(bpy.types.Operator):
     bl_label = "Read Servo"
     
     def execute(self, context):
-        bpy.context.scene.robot_channel_count = Servos.servo_count
+        # Builds servo data if it hasn't already been done
+        try:
+            bpy.context.scene.robot_channel_count = Servos.servo_count
+        except AttributeError:
+            Servos.build("")
+            bpy.context.scene.robot_channel_count = Servos.servo_count
+        
         sv_data = ServoInterface.get_servo_data(bpy.context.scene.robot_channel - 1)
         if (StoresStuff.debug): print ("DEBUG: Servo data read: " + str(sv_data) + "\n")
         bpy.context.scene.robot_channel_source = sv_data[0]
