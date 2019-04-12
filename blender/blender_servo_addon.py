@@ -7,8 +7,8 @@ from math import degrees
 bl_info = {
     "name": "ServoControl",
     "author": "<author>",
-    "version": (0, 1),
-    "blender": (2, 73),
+    "version": (0, 1, 0),
+    "blender": (2, 80, 0),
     "location": "",
     "description": "",
     "warning": "",
@@ -405,16 +405,21 @@ class WriteServoButton(bpy.types.Operator):
              
         return{'FINISHED'}
 
+classes = (
+    ReadServoButton,
+    WriteServoButton,
+    RobotPanel,
+    ConnectButton,
+    PlayAnimButton,
+)
+
 def register():
-	bpy.utils.register_class(ReadServoButton)
-	bpy.utils.register_class(WriteServoButton)
-	bpy.utils.register_class(RobotPanel)
-	bpy.utils.register_class(ConnectButton)
-	bpy.utils.register_class(PlayAnimButton)
-	
+    for cls in classes:
+        bpy.utils.register_class(cls)
+        
 def unregister():
-	bpy.utils.unregister_class(ReadServoButton)
-	bpy.utils.unregister_class(WriteServoButton)
-	bpy.utils.unregister_class(RobotPanel)
-	bpy.utils.unregister_class(ConnectButton)
-	bpy.utils.unregister_class(PlayAnimButton)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+        
+if __name__ == "__main__":
+    register()
