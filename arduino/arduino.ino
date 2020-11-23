@@ -1,63 +1,67 @@
-// Arduino code for controlling servos with Blender's animation system.
-// A Python script in blender generates serial commands 
-// and this reads them and sets the servos (using the stock Arduino servo lib).
+/*
+Arduino code for controlling servos with Blender's animation system. 
+ (or anything else that can send serial commands really)
 
-// This code is easily adjustable for use in a variety of projects:
-// * the GLOBAL(_MIN/_MAX) define the absolute bounds your servos will be 
-//      to travel, regardless of what commands are given. (Cheapie servos
-//      sometimes don't like to go the full 0-180)
-// * Global Speed is only used for "absolute" movements (which are untested!)
-// * Servo count is self explanitory. Setting it to 12 (the max) regardless
-//      shouldn't hurt. Just make sure it matches the size of servo_pins.
-// * servo_pins defines the io pin each servo connects to - make sure this 
-//      lines up with what you set up in Blender to get good results.
+A Python script in blender generates serial commands and this reads them and
+ sets the servos (using the stock Arduino servo lib).
 
+* servo_pins defines the IO pin each servo connects to.
+* the GLOBAL(_MIN/_MAX) define the absolute bounds your servos will be 
+     to travel, regardless of what commands are given. (Cheapie servos
+     sometimes don't like to go the full 0-180). TODO: these are currently
+     ignored by the recommended absolute move commands
+* SERVO_COUNT is self explanitory. Setting it to 12 (the max) regardless
+     shouldn't hurt, as long as it matches the size of servo_pins.
+* speed adjustments made using the 'f' command are applied on the next 'a'
+     command, not instantly.
 
-// serial command format:
-// SPEED1 DIR1 SPEED2 DIR2...
-// DIR1 = -1 for halt
-//      = 0 for FORWARD
-//      = 1 for REVERSE
-//      = a for ABSOLUTE:
-//         Speed is pre-defined
-//         Servo will travel to SPEED degress and stop
+serial commands are:
+MOVE: <servo1_angle> a <servo2_angle> a ... <servoX_angle> a
+SET SPEED: <servo1_deg_s> f <servo2_deg_s> f ... <servoX_deg_s> f
 
+OLD COMMAND FORMAT, may be removed:
+    SPEED1 DIR1 SPEED2 DIR2...
+    DIR1 = 0 for FORWARD
+         = 1 for REVERSE
+    set SPEED to -1 to stop servo
+*/
+
+#if defined(ESP_H)
+#include <ESP32_Servo.h>
+#else
 #include <Servo.h>
+#endif
 
-#define SERVO_COUNT 11
+#define SERVO_COUNT 1
 #define BUFFER_SZ 50
 #define GLOBAL_MIN 5
 #define GLOBAL_MAX 175
 #define GLOBAL_SPEED 30
-#define DEMO false
-#define DEBUG false
-#define DEBUG2 false
+#define DEBUG true
+#define DEBUG2 true
+
 
 Servo servo[SERVO_COUNT];
-byte servo_pins[SERVO_COUNT] = {2, 3, 4, 6, 7, 8, 9, 10, 5, 12, 13};
+byte servo_pins[SERVO_COUNT] = {32};
 byte servo_start[SERVO_COUNT];
 byte servo_end[SERVO_COUNT];
 
+unsigned int servo_speed[SERVO_COUNT];
+
 unsigned long cycle_dur[SERVO_COUNT];
 unsigned long cycle_start[SERVO_COUNT];
-
 bool moving[SERVO_COUNT];
-
-bool serial_active = false;
-#if DEMO
-byte anim_fac = 0;
-byte anim_time = 0;
-#endif
 
 int b_count;
 char buff[BUFFER_SZ];
 char command[BUFFER_SZ];
 
+
 void setup() {
     // put your setup code here, to run once:
     attach_all_servos();
     Serial.setTimeout(10);
-    Serial.begin(38400);
+    Serial.begin(115200);
     servo[0].write(90);
 }
 
@@ -65,9 +69,6 @@ void loop() {
     // put your main code here, to run repeatedly:
     serial_parse();
     update_servos();
-#if DEMO
-    update_demo();
-#endif
 
     if (b_count > 0) {
 #if DEBUG        
@@ -77,6 +78,7 @@ void loop() {
         set_servos_from_serial();
     }
 }
+
 
 void serial_parse() { 
     b_count = 1; 
@@ -88,62 +90,29 @@ void serial_parse() {
     Serial.flush();
 }
 
-#if DEMO
-void update_demo() {    
-    if (!serial_active) {   
-        byte anim_servo = anim_time;
-        while (anim_servo >= SERVO_COUNT) {
-            anim_servo -= SERVO_COUNT;
-#if DEBUG2            
-            Serial.println("test");
-            Serial.println(anim_servo);
-#endif            
-        }
-        Serial.println(anim_fac);
-        if (millis() > 10000 + (anim_time * 4000) && anim_fac == 0) {
-            set_servo(0 + anim_servo, 30, 0, false);
-            set_servo(1 + anim_servo, 30, 0, false);
-            anim_fac++;
-            Serial.println("1");
-        }
-        else if (millis() > 11000 + (anim_time * 4000) && anim_fac == 1) {
-            set_servo(0 + anim_servo, 30, 1, false);
-            set_servo(1 + anim_servo, 30, 1, false);
-            anim_fac++;
-            Serial.println("2");
-        }
-        else if (millis() > 12000 + (anim_time * 4000) && anim_fac == 2) {
-            set_servo(0 + anim_servo, -1, 0, false);
-            set_servo(1 + anim_servo, -1, 0, false);
-            Serial.println("3");
-#if DEBUG2
-            Serial.println("demo servo: ");
-            Serial.println(anim_servo); 
-#endif      
-            anim_fac = 0;
-            if (anim_time < 5) {            
-            
-            anim_time++;
-            }
-        }
-    }
-}
-#endif
-
 void set_servos_from_serial() {
     char* pch = strtok(command, " ");
     byte counter = 0;
     String sv_speed;
     String sv_dir;
-
-    serial_active = true;
     
     while (pch != NULL) {
+        //TODO: converting to String ideal?
         sv_speed = String(pch);
         pch = strtok(NULL, " ");
+        
+        if (pch == NULL) {
+            Serial.println("invalid command format");
+            break;
+        }
+        
         sv_dir = String(pch);
-
-        set_servo(counter, sv_speed.toInt(), (sv_dir == "1"), (sv_dir == "a"));        
+       
+        if (sv_dir == "f") // set feed rate command
+            servo_speed[counter] = sv_speed.toInt();
+        else               // move commands
+            set_servo(counter, sv_speed.toInt(), (sv_dir == "1"), (sv_dir == "a"));
+        
         counter++;
         pch = strtok(NULL, " ");
 
@@ -164,54 +133,85 @@ long deg_sec_to_time(int deg_sec, int cur_pos, bool dir) {
 // vars as necessary - call this to move a servo
 void set_servo(byte index, int deg_s, bool dir, bool absolute) {
     servo_start[index] = servo[index].read();
-    if (absolute) servo_end[index] = deg_s;
-    else servo_end[index] = (GLOBAL_MIN * dir) + (GLOBAL_MAX * !dir); 
     
-    if (deg_s == -1) {
+    if (absolute) 
+        servo_end[index] = deg_s;
+    else
+        servo_end[index] = dir ? GLOBAL_MIN : GLOBAL_MAX;
+    
+    switch (deg_s) {
+    case -1:
         moving[index] = false;
 #if DEBUG2
         Serial.println("stopped moving servo");
 #endif
+    case 0:
+        return;
+        break;
     }
-    if (deg_s > -2 && deg_s < 1) return;
     
 #if DEBUG
     Serial.print("deg_s: ");
     Serial.println(deg_s);
 #endif
+    // record start time and set velocity    
     cycle_start[index] = millis();
-    cycle_dur[index] = cycle_start[index] + deg_sec_to_time(deg_s, servo[index].read(), dir);
-    moving[index] = true;
+    
+    if (absolute) {
+        int new_pos = abs(deg_s - servo[index].read());
+        
+        if (new_pos != 0 && servo_speed[index] != 0) {
+            cycle_dur[index] = millis() + 
+                               ((new_pos * 1000) / servo_speed[index]);
+            moving[index] = true;
 #if DEBUG
-    Serial.print("servo velocity is ");
-    Serial.println(deg_sec_to_time(deg_s, servo[index].read(), dir));
+            Serial.print("servo move takes ");
+            Serial.print((new_pos * 1000) / servo_speed[index]);
+            Serial.println(" ms");
 #endif
+        }
+        else {
+           moving[index] = false;
+        }
+    }
+    else {
+        cycle_dur[index] = cycle_start[index] + 
+            deg_sec_to_time(deg_s, servo[index].read(), dir);
+        
+        moving[index] = true;
+#if DEBUG
+        Serial.print("servo velocity is ");
+        Serial.println(deg_sec_to_time(deg_s, servo[index].read(), dir));
+#endif
+    }
 }
 
 // interfaces to servo library
 void update_servos() {
     for (int i = 0; i < SERVO_COUNT; i++) {
-        unsigned long time_into_cycle = millis() % cycle_dur[i];
-        
-        if (moving[i]) {
+        if (cycle_dur[i] != 0) {
+            unsigned long time_into_cycle = millis() % cycle_dur[i];
+            
+            if (moving[i]) {
 #if DEBUG
-            Serial.println("cycle-timer, start, end:");
-            Serial.println(time_into_cycle);
-            Serial.println(cycle_start[i]);
-            Serial.println(cycle_dur[i]);
-            Serial.println(servo_start[i]);
-            Serial.println(servo_end[i]);
+                Serial.println("cycle-timer, start, end:");
+                Serial.println(time_into_cycle);
+                Serial.println(cycle_start[i]);
+                Serial.println(cycle_dur[i]);
+                Serial.println(servo_start[i]);
+                Serial.println(servo_end[i]);
 #endif            
-            servo[i].write(map(time_into_cycle, 
-                cycle_start[i], cycle_dur[i] - 1, servo_start[i], servo_end[i]));
+                servo[i].write(map(time_into_cycle, cycle_start[i], 
+                               cycle_dur[i] - 1, servo_start[i], servo_end[i]));
 #if DEBUG2            
-            Serial.println(time_into_cycle);
+                Serial.println(time_into_cycle);
 #endif
-        }
+            }
 
-        if (time_into_cycle >= cycle_dur[i] - 10) {
-            moving[i] = false;
-            servo_start[i] = servo[i].read();
+            if (time_into_cycle >= cycle_dur[i] - 10) {
+                moving[i] = false;
+                servo_start[i] = servo[i].read();
+            }
         }
     }
 }
