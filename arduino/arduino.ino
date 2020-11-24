@@ -32,17 +32,17 @@ OLD COMMAND FORMAT, may be removed:
 #include <Servo.h>
 #endif
 
-#define SERVO_COUNT 1
+#define SERVO_COUNT 2
 #define BUFFER_SZ 50
 #define GLOBAL_MIN 5
 #define GLOBAL_MAX 175
 #define GLOBAL_SPEED 30
 #define DEBUG true
-#define DEBUG2 true
+#define DEBUG2 false
 
 
 Servo servo[SERVO_COUNT];
-byte servo_pins[SERVO_COUNT] = {32};
+byte servo_pins[SERVO_COUNT] = {32, 33};
 byte servo_start[SERVO_COUNT];
 byte servo_end[SERVO_COUNT];
 
@@ -56,41 +56,52 @@ int b_count;
 char buff[BUFFER_SZ];
 char command[BUFFER_SZ];
 
-
 void setup() {
     // put your setup code here, to run once:
     attach_all_servos();
     Serial.setTimeout(10);
     Serial.begin(115200);
     servo[0].write(90);
+    
+    pinMode(18, OUTPUT);
 }
 
 void loop() {
-    // put your main code here, to run repeatedly:
+    // put your main code here, to run repeatedly:    
     serial_parse();
     update_servos();
 
     if (b_count > 0) {
+
+    }
+}
+
+
+void serial_parse() { 
+    b_count = 0; 
+    while (Serial.available()) {
+
+        buff[b_count] = Serial.read();
+        b_count++;
+    }
+    //b_count = Serial.readBytesUntil('\n', buff, BUFFER_SZ);
+
+    if (b_count > 0) {
+        strcpy(command, buff);
 #if DEBUG        
         Serial.print("received ");
         Serial.println(command);
 #endif 
         set_servos_from_serial();
     }
-}
-
-
-void serial_parse() { 
-    b_count = 1; 
-    b_count = Serial.readBytesUntil('\n', buff, BUFFER_SZ);
-
-    if (b_count > 0) strcpy(command, buff);
-
+    
     memset(buff, 0, sizeof(buff));
-    Serial.flush();
+    //Serial.flush();
 }
 
 void set_servos_from_serial() {
+    digitalWrite(18, 1);
+    
     char* pch = strtok(command, " ");
     byte counter = 0;
     String sv_speed;
@@ -111,7 +122,7 @@ void set_servos_from_serial() {
         if (sv_dir == "f") // set feed rate command
             servo_speed[counter] = sv_speed.toInt();
         else               // move commands
-            set_servo(counter, sv_speed.toInt(), (sv_dir == "1"), (sv_dir == "a"));
+            set_servo(counter, sv_speed.toInt(), false, true);
         
         counter++;
         pch = strtok(NULL, " ");
@@ -120,7 +131,10 @@ void set_servos_from_serial() {
             counter = 0;
             break;
         }
-    }   
+        
+        Serial.println("OK");
+    }
+    digitalWrite(18, 0);
 }
 
 // find how long it takes to travel X degrees
@@ -159,10 +173,12 @@ void set_servo(byte index, int deg_s, bool dir, bool absolute) {
     
     if (absolute) {
         int new_pos = abs(deg_s - servo[index].read());
-        
+#if DEBUG
+        Serial.print("delta: ");
+        Serial.println(new_pos);
+#endif
         if (new_pos != 0 && servo_speed[index] != 0) {
-            cycle_dur[index] = millis() + 
-                               ((new_pos * 1000) / servo_speed[index]);
+            cycle_dur[index] = ((new_pos * 1000) / servo_speed[index]);
             moving[index] = true;
 #if DEBUG
             Serial.print("servo move takes ");
@@ -175,8 +191,7 @@ void set_servo(byte index, int deg_s, bool dir, bool absolute) {
         }
     }
     else {
-        cycle_dur[index] = cycle_start[index] + 
-            deg_sec_to_time(deg_s, servo[index].read(), dir);
+        cycle_dur[index] = deg_sec_to_time(deg_s, servo[index].read(), dir);
         
         moving[index] = true;
 #if DEBUG
@@ -190,10 +205,10 @@ void set_servo(byte index, int deg_s, bool dir, bool absolute) {
 void update_servos() {
     for (int i = 0; i < SERVO_COUNT; i++) {
         if (cycle_dur[i] != 0) {
-            unsigned long time_into_cycle = millis() % cycle_dur[i];
+            unsigned long time_into_cycle = millis() - cycle_start[i];
             
             if (moving[i]) {
-#if DEBUG
+#if DEBUG2
                 Serial.println("cycle-timer, start, end:");
                 Serial.println(time_into_cycle);
                 Serial.println(cycle_start[i]);
@@ -201,16 +216,16 @@ void update_servos() {
                 Serial.println(servo_start[i]);
                 Serial.println(servo_end[i]);
 #endif            
-                servo[i].write(map(time_into_cycle, cycle_start[i], 
+                servo[i].write(map(time_into_cycle, 0, 
                                cycle_dur[i] - 1, servo_start[i], servo_end[i]));
-#if DEBUG2            
-                Serial.println(time_into_cycle);
-#endif
+                               
+                //Serial.println(time_into_cycle);
             }
 
-            if (time_into_cycle >= cycle_dur[i] - 10) {
+            if (time_into_cycle >= cycle_dur[i]) {
                 moving[i] = false;
                 servo_start[i] = servo[i].read();
+                servo[i].write(servo_end[i]);
             }
         }
     }
