@@ -16,14 +16,7 @@ A Python script in blender generates serial commands and this reads them and
      command, not instantly.
 
 serial commands are:
-MOVE: <servo1_angle> a <servo2_angle> a ... <servoX_angle> a
-SET SPEED: <servo1_deg_s> f <servo2_deg_s> f ... <servoX_deg_s> f
-
-OLD COMMAND FORMAT, may be removed:
-    SPEED1 DIR1 SPEED2 DIR2...
-    DIR1 = 0 for FORWARD
-         = 1 for REVERSE
-    set SPEED to -1 to stop servo
+MOVE: <servo1_angle> <servo1_deg_s> ...
 */
 
 #if defined(ESP_H)
@@ -104,12 +97,12 @@ void set_servos_from_serial() {
     
     char* pch = strtok(command, " ");
     byte counter = 0;
+    String sv_posn;
     String sv_speed;
-    String sv_dir;
     
     while (pch != NULL) {
         //TODO: converting to String ideal?
-        sv_speed = String(pch);
+        sv_posn = String(pch);
         pch = strtok(NULL, " ");
         
         if (pch == NULL) {
@@ -117,12 +110,12 @@ void set_servos_from_serial() {
             break;
         }
         
-        sv_dir = String(pch);
+        sv_speed = String(pch);
        
-        if (sv_dir == "f") // set feed rate command
-            servo_speed[counter] = sv_speed.toInt();
+        if (sv_speed == "f") // set feed rate command
+            servo_speed[counter] = sv_posn.toInt();
         else               // move commands
-            set_servo(counter, sv_speed.toInt(), false, true);
+            set_servo(counter, sv_posn.toInt(), sv_speed.toInt(), false, true);
         
         counter++;
         pch = strtok(NULL, " ");
@@ -145,15 +138,15 @@ long deg_sec_to_time(int deg_sec, int cur_pos, bool dir) {
 
 // takes a desired servo move and sets all the 
 // vars as necessary - call this to move a servo
-void set_servo(byte index, int deg_s, bool dir, bool absolute) {
+void set_servo(byte index, int goal_pos, int deg_s, bool dir, bool absolute) {
     servo_start[index] = servo[index].read();
     
     if (absolute) 
-        servo_end[index] = deg_s;
+        servo_end[index] = goal_pos;
     else
         servo_end[index] = dir ? GLOBAL_MIN : GLOBAL_MAX;
     
-    switch (deg_s) {
+    switch (goal_pos) {
     case -1:
         moving[index] = false;
 #if DEBUG2
@@ -165,24 +158,24 @@ void set_servo(byte index, int deg_s, bool dir, bool absolute) {
     }
     
 #if DEBUG
-    Serial.print("deg_s: ");
-    Serial.println(deg_s);
+    Serial.print("goal_pos: ");
+    Serial.println(goal_pos);
 #endif
     // record start time and set velocity    
     cycle_start[index] = millis();
     
     if (absolute) {
-        int new_pos = abs(deg_s - servo[index].read());
+        int new_pos = abs(goal_pos - servo[index].read());
 #if DEBUG
         Serial.print("delta: ");
         Serial.println(new_pos);
 #endif
-        if (new_pos != 0 && servo_speed[index] != 0) {
-            cycle_dur[index] = ((new_pos * 1000) / servo_speed[index]);
+        if (new_pos != 0 && deg_s != 0) {
+            cycle_dur[index] = ((new_pos * 1000) / deg_s);
             moving[index] = true;
 #if DEBUG
             Serial.print("servo move takes ");
-            Serial.print((new_pos * 1000) / servo_speed[index]);
+            Serial.print((new_pos * 1000) / deg_s);
             Serial.println(" ms");
 #endif
         }
@@ -191,12 +184,12 @@ void set_servo(byte index, int deg_s, bool dir, bool absolute) {
         }
     }
     else {
-        cycle_dur[index] = deg_sec_to_time(deg_s, servo[index].read(), dir);
+        cycle_dur[index] = deg_sec_to_time(goal_pos, servo[index].read(), dir);
         
         moving[index] = true;
 #if DEBUG
         Serial.print("servo velocity is ");
-        Serial.println(deg_sec_to_time(deg_s, servo[index].read(), dir));
+        Serial.println(deg_sec_to_time(goal_pos, servo[index].read(), dir));
 #endif
     }
 }
