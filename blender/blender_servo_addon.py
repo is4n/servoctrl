@@ -59,7 +59,7 @@ class Servos:
                 Servos.servo_list.append(Servo( \
                     servo_props[0], \
                     int(servo_props[1]), \
-                    bool(servo_props[2]), \
+                    (servo_props[2] == "True"), \
                     int(servo_props[3])))
     
     def update():
