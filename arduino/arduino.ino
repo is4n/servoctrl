@@ -25,17 +25,19 @@ MOVE: <servo1_angle> <servo1_deg_s> ...
 #include <Servo.h>
 #endif
 
-#define SERVO_COUNT 2
-#define BUFFER_SZ 50
+#define SERVO_COUNT 7
+#define BUFFER_SZ 100
 #define GLOBAL_MIN 5
 #define GLOBAL_MAX 175
+#define GLOBAL_PWM_MIN 550
+#define GLOBAL_PWM_MAX 2400
 #define GLOBAL_SPEED 30
 #define DEBUG true
 #define DEBUG2 false
 
 
 Servo servo[SERVO_COUNT];
-byte servo_pins[SERVO_COUNT] = {32, 33};
+byte servo_pins[SERVO_COUNT] = {4, 18, 19, 21, 25, 26, 23};
 byte servo_start[SERVO_COUNT];
 byte servo_end[SERVO_COUNT];
 
@@ -106,7 +108,8 @@ void set_servos_from_serial() {
         pch = strtok(NULL, " ");
         
         if (pch == NULL) {
-            Serial.println("invalid command format");
+            Serial.print("invalid command format: ");
+            Serial.println(command);
             break;
         }
         
@@ -226,7 +229,7 @@ void update_servos() {
 
 void attach_all_servos() {
     for (int i = 0; i < SERVO_COUNT; i++) {
-        servo[i].attach(servo_pins[i]);
+        servo[i].attach(servo_pins[i], GLOBAL_PWM_MIN, GLOBAL_PWM_MAX);
         servo_start[i] = 89;
         servo_end[i] = 90;
         cycle_dur[i] = 100;

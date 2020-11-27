@@ -266,22 +266,40 @@ class PlaysAnimation:
     # gets per-servo data for given frame, formats and commits to arduino   
     @classmethod
     def update_frame(self, frame, fps):      
-        send_str = ''
+        op_str = ''
         new_servo_pos = []
         Servos.update()
         
         for sv in range(0, Servos.servo_count):
             curr_servo = Servos.servo_list[sv]
-            new_servo_pos.append(curr_servo.home + degrees(curr_servo.source))
-            send_str += self.gen_servo_args(
+            
+            if (curr_servo.reversed):
+                new_servo_pos.append(curr_servo.home - degrees(curr_servo.source))
+            else:
+                new_servo_pos.append(curr_servo.home + degrees(curr_servo.source))
+            
+            position, velocity = self.gen_servo_args(
                 curr_servo.position, 
                 new_servo_pos[sv], 
                 curr_servo.reversed, 
-                fps) + ' '
+                fps)
+                
             curr_servo.position = new_servo_pos[sv]
+            
+            op_str += position + ' ' + velocity + ' '
         
-        if (StoresStuff.debug): print (send_str + '\n')
-        else: StoresStuff.ser.write((send_str + '\n').encode())
+        if (StoresStuff.debug and not bpy.context.scene.robot_connected): 
+            print("robot output")
+            print(op_str[:-1])
+        else: 
+            #StoresStuff.ser.write((velocity_str + '\n').encode("UTF-8"))
+            StoresStuff.ser.write((op_str[:-1]).encode("UTF-8"))
+            
+            if (StoresStuff.debug):
+                print(StoresStuff.ser.read(300))
+            else:
+                StoresStuff.ser.read(6)
+            #time.sleep(0.5)
     
     # plays entire animation on arduino 
     # note this holds up the thread (time.sleep()) so the UI goes unresponsive
@@ -298,7 +316,7 @@ class PlaysAnimation:
             
               
             if (frame == StoresStuff.end - 1):
-                self.cancel()
+                #self.cancel()
                 return
               
             self.update_frame(frame, StoresStuff.fps)
@@ -307,10 +325,16 @@ class PlaysAnimation:
     # converts a servo position for current and last frame into velocity/direction string
     @classmethod
     def gen_servo_args(self, start_pos, end_pos, reverse, fps): #todo: add revese
+        deg_sec = (end_pos - start_pos) * fps
+        retstrs = [str(int(end_pos)), str(abs(int(deg_sec)))]      
+        
         print("start_pos: " + str(start_pos))
         print("end_pos: " + str(end_pos))
-        deg_sec = (end_pos - start_pos) * fps
         print("deg_sec" + str(deg_sec))
+        
+        return retstrs      
+        
+        # code for old style commands, now unused..
         if (deg_sec == 0): return '-1 0'
         if ((deg_sec < 0 and not reverse)): 
             return str(int(deg_sec * -1)) + ' 1'
@@ -338,7 +362,7 @@ class ConnectButton(bpy.types.Operator):
                 return{'FINISHED'}
         try: 
             StoresStuff.ser = serial.Serial(bpy.context.scene.robot_port, 
-                bpy.context.scene.robot_port_rate)
+                bpy.context.scene.robot_port_rate, timeout=.05)
             StoresStuff.print_connected()                   
             
             return{'FINISHED'}
@@ -354,6 +378,7 @@ class PlayAnimButton(bpy.types.Operator):
 	
     def execute(self, context): 
         Servos.build("") # in order to remember servo config after re-opening blender 
+        StoresStuff.debug = bpy.context.scene.robot_debug
         StoresStuff.fps = bpy.context.scene.render.fps
         StoresStuff.start = bpy.context.scene.frame_start
         StoresStuff.end = bpy.context.scene.frame_end
