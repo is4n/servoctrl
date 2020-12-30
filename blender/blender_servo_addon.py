@@ -293,12 +293,14 @@ class PlaysAnimation:
             print(op_str[:-1])
         else: 
             #StoresStuff.ser.write((velocity_str + '\n').encode("UTF-8"))
-            StoresStuff.ser.write((op_str[:-1]).encode("UTF-8"))
+            StoresStuff.ser.write((op_str[:-1] + '\n').encode("UTF-8"))
             
             if (StoresStuff.debug):
                 print(StoresStuff.ser.read(300))
             else:
-                StoresStuff.ser.read(6)
+                # forcing serial to time out fixes intermittant communications
+                # for some reason
+                StoresStuff.ser.read(300) 
             #time.sleep(0.5)
     
     # plays entire animation on arduino 

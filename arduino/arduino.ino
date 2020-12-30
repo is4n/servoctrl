@@ -25,7 +25,7 @@ MOVE: <servo1_angle> <servo1_deg_s> ...
 #include <Servo.h>
 #endif
 
-#define SERVO_COUNT 7
+#define SERVO_COUNT 1
 #define BUFFER_SZ 100
 #define GLOBAL_MIN 5
 #define GLOBAL_MAX 175
@@ -37,7 +37,8 @@ MOVE: <servo1_angle> <servo1_deg_s> ...
 
 
 Servo servo[SERVO_COUNT];
-byte servo_pins[SERVO_COUNT] = {4, 18, 19, 21, 25, 26, 23};
+//byte servo_pins[SERVO_COUNT] = {4, 18, 19, 21, 25, 26, 23};
+byte servo_pins[SERVO_COUNT] = {3};
 byte servo_start[SERVO_COUNT];
 byte servo_end[SERVO_COUNT];
 
@@ -55,7 +56,7 @@ void setup() {
     // put your setup code here, to run once:
     attach_all_servos();
     Serial.setTimeout(10);
-    Serial.begin(115200);
+    Serial.begin(38400);
     servo[0].write(90);
     
     pinMode(18, OUTPUT);
@@ -73,13 +74,15 @@ void loop() {
 
 
 void serial_parse() { 
-    b_count = 0; 
-    while (Serial.available()) {
+    b_count = 0;
+    int command_done = 0;
 
+/*     while (Serial.available()) {
         buff[b_count] = Serial.read();
         b_count++;
-    }
-    //b_count = Serial.readBytesUntil('\n', buff, BUFFER_SZ);
+    } */
+    
+    b_count = Serial.readBytesUntil('\n', buff, BUFFER_SZ);
 
     if (b_count > 0) {
         strcpy(command, buff);
@@ -88,8 +91,8 @@ void serial_parse() {
         Serial.println(command);
 #endif 
         set_servos_from_serial();
+        // clear string
     }
-    
     memset(buff, 0, sizeof(buff));
     //Serial.flush();
 }
@@ -141,7 +144,7 @@ long deg_sec_to_time(int deg_sec, int cur_pos, bool dir) {
 
 // takes a desired servo move and sets all the 
 // vars as necessary - call this to move a servo
-void set_servo(byte index, int goal_pos, int deg_s, bool dir, bool absolute) {
+void set_servo(byte index, int goal_pos, uint32_t deg_s, bool dir, bool absolute) {
     servo_start[index] = servo[index].read();
     
     if (absolute) 
@@ -168,10 +171,12 @@ void set_servo(byte index, int goal_pos, int deg_s, bool dir, bool absolute) {
     cycle_start[index] = millis();
     
     if (absolute) {
-        int new_pos = abs(goal_pos - servo[index].read());
+        uint32_t new_pos = abs(goal_pos - servo[index].read());
 #if DEBUG
         Serial.print("delta: ");
         Serial.println(new_pos);
+        Serial.print("deg_s: ");
+        Serial.println(deg_s);
 #endif
         if (new_pos != 0 && deg_s != 0) {
             cycle_dur[index] = ((new_pos * 1000) / deg_s);
