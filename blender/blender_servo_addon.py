@@ -144,6 +144,7 @@ class RobotPanel(bpy.types.Panel):
         
         col = self.layout.column(align = True)        
         col.prop(context.scene, "robot_debug")
+        col.prop(context.scene, "robot_sync")
         col.label(text = bpy.context.scene.robot_message)
         col.prop(context.scene, "robot_port")
         col.prop(context.scene, "robot_port_rate")
@@ -174,6 +175,12 @@ class RobotPanel(bpy.types.Panel):
             (
                 name = "Debug",
                 description = "dump to terminal instead of sending serial data",
+                default = False
+            )
+        bpy.types.Scene.robot_sync = bpy.props.BoolProperty \
+            (
+                name = "Sync",
+                description = "Follow rig in realtime",
                 default = False
             )
         bpy.types.Scene.robot_channel = bpy.props.IntProperty \
@@ -241,8 +248,10 @@ class RobotPanel(bpy.types.Panel):
             
 
 class StoresStuff:
-    debug = False # bpy.context.scene.robot_debug 
-    
+    debug = True
+    timer_const = 14 # frame rate to robot
+    timer_active = False
+        
     def print_connected(): 
         bpy.context.scene.robot_message = "Connected"
         bpy.context.scene.robot_connected = 1
@@ -253,15 +262,74 @@ class StoresStuff:
         bpy.context.scene.robot_connected = 0
     
 
-class PlaysAnimation:
-    # stops servo movement
-    @classmethod
-    def cancel(self): 
-        cancel_str = ''
-        for sv in range(0, Servos.servo_count):
-            cancel_str += '-1 0 '
-        if (StoresStuff.debug): print((cancel_str + '\n'))
-        else: StoresStuff.ser.write((cancel_str + '\n').encode())
+class PlaysAnimation(bpy.types.Operator):
+    """Operator which runs its self from a timer"""
+    # pulled from Blender example scripts
+    bl_idname = "wm.robot_data_sender"
+    bl_label = "Robot Data Sender"
+
+    _timer = None
+    _timerStart = 0
+    _timerConst = 1 / StoresStuff.timer_const
+
+    def modal(self, context, event):
+        ##if event.type in {'RIGHTMOUSE', 'ESC'}:
+        ##    self.cancel(context)
+        ##    return {'CANCELLED'}
+        #print("loop pt1")
+        # robot sync is on
+        elapsed = time.monotonic() - self._timerStart
+        
+        if (event.type == 'TIMER'):
+            # shut down event if connection is severed
+            if (bpy.context.scene.robot_connected == 0) and (not StoresStuff.debug):
+                print("timer killing itself")
+                self.cancel(context)
+                StoresStuff.timer_active = False
+                return {'CANCELLED'}
+            
+            # if sync is checked...
+            if ((bpy.context.scene.robot_sync) and (elapsed > self._timerConst)):
+                print(StoresStuff.debug)
+                print("timer elapsed") 
+                self._timerStart = time.monotonic()
+                
+                # check the connection
+                if (not bpy.context.scene.robot_connected and (not StoresStuff.debug)):
+                    print("no connection!")
+                
+                else: # connection OK
+                    self.update_frame(bpy.context.scene.frame_current,StoresStuff.timer_const)
+
+            #print(f"timer has gone {elapsed} so far")
+        
+        #TODO: unregister event on sync uncheck
+        #if ((event.type == 'TIMER') and (not bpy.context.scene.robot_sync)):
+        #    self.cancel(context)
+        #    return {'CANCELLED'}
+          
+        return {'PASS_THROUGH'}
+
+    def execute(self, context):
+        self._timerStart = time.monotonic()
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        
+        return {'RUNNING_MODAL'}
+
+    def cancel(self, context):
+        wm = context.window_manager
+        wm.event_timer_remove(self._timer)
+        
+    #TODO: stops servo movement
+    #@classmethod
+    #def cancel(self): 
+    #    cancel_str = ''
+    #    for sv in range(0, Servos.servo_count):
+    #        cancel_str += '-1 0 '
+    #    if (StoresStuff.debug): print((cancel_str + '\n'))
+    #    else: StoresStuff.ser.write((cancel_str + '\n').encode())
     
     # gets per-servo data for given frame, formats and commits to arduino   
     @classmethod
@@ -309,8 +377,8 @@ class PlaysAnimation:
     def play(self, fps):
         for frame in range(StoresStuff.start, StoresStuff.end):
             bpy.context.scene.frame_set(frame)
-          
-            if (not bpy.context.scene.robot_connected and not StoresStuff.debug):
+            
+            if (not bpy.context.scene.robot_connected and (not StoresStuff.debug)):
                 bpy.context.scene.robot_message = "No Connection!"
                 return
               
@@ -326,17 +394,23 @@ class PlaysAnimation:
             
     # converts a servo position for current and last frame into velocity/direction string
     @classmethod
-    def gen_servo_args(self, start_pos, end_pos, reverse, fps): #todo: add revese
+    def gen_servo_args(self, start_pos, end_pos, reverse, fps, drift_corr_spd=50, drift_corr_thresh=10, vel_scale=0.8): #todo: add revese
         deg_sec = (end_pos - start_pos) * fps
-        retstrs = [str(int(end_pos)), str(abs(int(deg_sec)))]      
         
-        print("start_pos: " + str(start_pos))
-        print("end_pos: " + str(end_pos))
-        print("deg_sec" + str(deg_sec))
+        if (deg_sec > drift_corr_spd):
+            deg_sec *= vel_scale
+        if (abs(deg_sec) < drift_corr_thresh):
+            deg_sec = drift_corr_spd
         
-        return retstrs      
+        retstrs = [str(int(end_pos)), str(abs(int(deg_sec)))]
         
-        # code for old style commands, now unused..
+        #print("start_pos: " + str(start_pos))
+        #print("end_pos: " + str(end_pos))
+        #print("deg_sec" + str(deg_sec))
+        
+        return retstrs
+        
+        # code for old style commands
         if (deg_sec == 0): return '-1 0'
         if ((deg_sec < 0 and not reverse)): 
             return str(int(deg_sec * -1)) + ' 1'
@@ -350,9 +424,14 @@ class PlaysAnimation:
 class ConnectButton(bpy.types.Operator):
     bl_idname = "robot.connect"
     bl_label = "Connect"
-    def execute(self, context):
     
+    def execute(self, context):
+        # update debug mode
+        StoresStuff.debug = bpy.context.scene.robot_debug
+        Servos.build("")
+        
         if (bpy.context.scene.robot_connected):
+            # disconnect
             try: 
                 StoresStuff.print_disconnected(False)
                 StoresStuff.ser.close()
@@ -362,25 +441,34 @@ class ConnectButton(bpy.types.Operator):
                 bpy.context.scene.robot_message = "Disconnect Failure"
 
                 return{'FINISHED'}
-        try: 
+        
+        try:
+            # connect serial port
             StoresStuff.ser = serial.Serial(bpy.context.scene.robot_port, 
-                bpy.context.scene.robot_port_rate, timeout=.05)
+                bpy.context.scene.robot_port_rate, timeout=0.01)
             StoresStuff.print_connected()                   
-            
-            return{'FINISHED'}
         except: 
             StoresStuff.print_disconnected(True)
-            
-            return{'FINISHED'}  
+            # start timer anyways if debugging
+            if (not StoresStuff.debug): 
+                return{'FINISHED'}  
+          
+        # start the timer
+        if (not StoresStuff.timer_active):
+            print("timer NOT active, starting")
+            bpy.ops.wm.robot_data_sender()
+            StoresStuff.timer_active = True
+        
+        return {'FINISHED'}
      
 
 class PlayAnimButton(bpy.types.Operator):
     bl_idname = "robot.animate"
     bl_label = "Play"  
-	
+    
     def execute(self, context): 
         Servos.build("") # in order to remember servo config after re-opening blender 
-        StoresStuff.debug = bpy.context.scene.robot_debug
+        #StoresStuff.debug = bpy.context.scene.robot_debug  # Moved to connection routine
         StoresStuff.fps = bpy.context.scene.render.fps
         StoresStuff.start = bpy.context.scene.frame_start
         StoresStuff.end = bpy.context.scene.frame_end
@@ -438,6 +526,7 @@ classes = (
     RobotPanel,
     ConnectButton,
     PlayAnimButton,
+    PlaysAnimation
 )
 
 def register():
@@ -450,3 +539,8 @@ def unregister():
         
 if __name__ == "__main__":
     register()
+
+# clean up any old test runs
+#try:
+#    bpy.context.window_manager
+#bpy.ops.wm.robot_data_sender()
